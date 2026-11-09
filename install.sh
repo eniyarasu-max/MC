@@ -43,11 +43,17 @@ def save(url, dest):
 
 kind, dest = sys.argv[1], sys.argv[-1]
 if kind == "paper":
-    base = "https://api.papermc.io/v2/projects/paper"
-    ver = json.load(get(base))["versions"][-1]
-    build = json.load(get(f"{base}/versions/{ver}"))["builds"][-1]
-    name = f"paper-{ver}-{build}.jar"
-    save(f"{base}/versions/{ver}/builds/{build}/downloads/{name}", dest)
+    base = "https://fill.papermc.io/v3/projects/paper"
+    groups = json.load(get(base))["versions"]  # newest group first, newest version first
+    for group in groups.values():
+        for ver in group:
+            builds = json.load(get(f"{base}/versions/{ver}/builds"))
+            stable = [b for b in builds if b.get("channel") == "STABLE"]
+            if stable:
+                print("Paper version", ver)
+                save(stable[0]["downloads"]["server:default"]["url"], dest)
+                sys.exit(0)
+    sys.exit("No stable Paper build found")
 elif kind == "url":
     save(sys.argv[2], dest)
 elif kind == "modrinth":
