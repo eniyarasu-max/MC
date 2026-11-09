@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Minecraft server installer for UserLAnd (Ubuntu) on a phone.
-# Usage:  bash install.sh [RAM_MB]      e.g.  bash install.sh 1536
+# Usage:  bash install.sh [RAM_MB]      e.g.  bash install.sh 3072
 set -e
 
 RAM_MB="${1:-1536}"
 MC_DIR="$HOME/mc"
 HERE="$(cd "$(dirname "$0")" && pwd)"
+SEED="${SEED:-2048005618087379093}"
 SUDO=""
 [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
@@ -44,16 +45,17 @@ def save(url, dest):
 kind, dest = sys.argv[1], sys.argv[-1]
 if kind == "paper":
     base = "https://fill.papermc.io/v3/projects/paper"
-    groups = json.load(get(base))["versions"]  # newest group first, newest version first
-    for group in groups.values():
-        for ver in group:
-            builds = json.load(get(f"{base}/versions/{ver}/builds"))
-            stable = [b for b in builds if b.get("channel") == "STABLE"]
-            if stable:
-                print("Paper version", ver)
-                save(stable[0]["downloads"]["server:default"]["url"], dest)
-                sys.exit(0)
-    sys.exit("No stable Paper build found")
+    groups = json.load(get(base))["versions"]
+    vers = sorted({v for g in groups.values() for v in g},
+                  key=lambda s: [int(x) if x.isdigit() else 0 for x in s.split(".")],
+                  reverse=True)
+    for v in vers:
+        builds = json.load(get(f"{base}/versions/{v}/builds"))
+        stable = [b for b in builds if b.get("channel") == "STABLE"]
+        if stable:
+            print("Paper version", v)
+            save(stable[0]["downloads"]["server:default"]["url"], dest)
+            break
 elif kind == "url":
     save(sys.argv[2], dest)
 elif kind == "modrinth":
@@ -64,11 +66,15 @@ elif kind == "modrinth":
 PY
 
 # ---------- Paper ----------
+# Remove an empty/broken jar left by a failed earlier run
+[ -f paper.jar ] && [ ! -s paper.jar ] && rm -f paper.jar
+
 if [ ! -f paper.jar ]; then
   echo "==> Downloading Paper..."
   if [ -n "$PAPER_URL" ]; then
     python3 dl.py url "$PAPER_URL" paper.jar
   elif ! python3 dl.py paper paper.jar; then
+    rm -f paper.jar
     echo "Automatic Paper download failed."
     read -rp "Paste the Paper .jar download link from papermc.io: " PU
     python3 dl.py url "$PU" paper.jar
@@ -90,8 +96,14 @@ python3 dl.py modrinth chunky plugins/Chunky.jar \
 echo "$RAM_MB" > ram.txt
 echo "eula=true" > eula.txt
 
-read -rp "World seed (press Enter for a random one): " SEED
-if [ ! -f server.properties ]; then
+if [ -f server.properties ]; then
+  # Apply the seed even if the file already exists
+  if grep -q '^level-seed=' server.properties; then
+    sed -i "s/^level-seed=.*/level-seed=$SEED/" server.properties
+  else
+    echo "level-seed=$SEED" >> server.properties
+  fi
+else
 cat > server.properties <<EOF
 motd=Survival Server (Java + Bedrock)
 gamemode=survival
@@ -141,5 +153,6 @@ EOF
 chmod +x dashboard.sh
 
 echo
-echo "Done. Start the dashboard with:   cd ~/mc && ./dashboard.sh"
-echo "Then open  http://<phone-ip>:8080  in a browser and press Start."
+echo "Done. World seed set to: $SEED"
+echo "Start the dashboard with:   cd ~/mc && screen -dmS dash ./dashboard.sh"
+echo "Then open  http://localhost:8080  in a browser and press Start."
